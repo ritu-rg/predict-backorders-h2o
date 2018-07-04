@@ -1,0 +1,120 @@
+---
+title: "Predict Back Orders"
+author: "Ritu"
+date: "February 12, 2018"
+output: html_document
+---
+
+```{r}
+
+library(ggplot2)
+library(readr)
+library(h2o)
+library(dplyr)
+library(caret)
+library(magrittr)
+library(randomForest)
+library(unbalanced)
+
+# Start H2o
+localH2O =  h2o.init(nthreads = -1)
+
+# Reading & viewing data
+setwd("C:\\Users\\Ritu\\Documents\\Learning\\EL\\1-13-14\\Exercises\\predict-bo-trial")
+train <- read.csv("Kaggle_Training_Dataset_v2.csv")
+test <- read.csv("Kaggle_Test_Dataset_v2.csv")
+
+head(train)
+head(test)
+
+dim(train)
+dim(test)
+
+str(train)
+str(test)
+
+summary(train)
+summary(test)
+
+
+# Finding NAs
+sum(is.na(train))
+sum(is.na(test))
+
+train %<>% na.roughfix()
+test %<>% na.roughfix()
+
+sum(is.na(train))
+sum(is.na(test))
+
+
+# Binding train, test
+df_all <- rbind(train,test)
+
+# Check for balanced data
+table(df_all$went_on_backorder)/nrow(df_all)
+
+# Balance the dataset
+X<-df_all[, -c(1,23)]    # Exclude Id and target
+#    Get y as a factor NOT 1,2 as now but 0 and 1
+y<-as.factor(as.numeric(df_all[, 23]) -2) 
+
+# Balancing
+b_data <- ubSMOTE(X = X, Y = y,   # Also y be a vector not a dataframe
+                  perc.over=200,   #  200/100 = 2 instances generated for every rare instance
+                  perc.under=500,  #  500/100 = 5 instances selected for every smoted observation
+                  k=3,
+                  verbose=TRUE) 
+
+df_all_data <- cbind(b_data$X, label = b_data$Y)
+
+dim(df_all_data)
+
+# Check if its balanced now?
+table(df_all_data$label)/nrow(df_all_data)
+
+# Import data in h2oFrame
+s_file<-as.h2o(df_all_data)
+class(s_file)
+
+
+dim(s_file)
+
+h2o.ls()
+
+# Autoencoder model: Consumes time and memory
+NN_model = h2o.deeplearning(
+  x = 1:21,                # Last column is label
+  training_frame = s_file,
+  hidden = c(10, 5, 2, 5, 10 ),    # Autoencoder layers
+  epochs = 600,
+  activation = "Tanh",
+  autoencoder = TRUE
+)
+
+
+# Extract the non-linear feature from layer 3 of H2O data set
+#     using an H2O deep learning model
+df_all_features = h2o.deepfeatures(NN_model, s_file, layer=3)
+head(df_all_features)
+
+
+
+# Make a dataframe of 2+1 columns
+df = as.data.frame(df_all_features)  # 2 columns
+df$label = as.character(as.vector(s_file[,22])) # +1 column
+dim(df)
+
+
+# Plot all points
+ggplot(df, aes(x= DF.L3.C1, y = DF.L3.C2)) + geom_point(aes(col=label))
+
+h2o.shutdown()
+
+
+
+
+
+
+```
+
